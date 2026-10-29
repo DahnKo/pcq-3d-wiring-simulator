@@ -56,3 +56,10 @@ test('connection redo history also survives progress save and restore',()=>{
  const saved=captureProgress(problem,attempt,wiring),restoredAttempt=new Attempt(()=>100),restoredWiring=new WiringController(problem,restoredAttempt);restoreProgress(saved,problem,restoredAttempt,restoredWiring);
  assert.equal(restoredAttempt.future.length,1);assert.equal(restoredWiring.redo().type,'connection');assert.equal(restoredAttempt.connections.length,1);
 });
+
+test('cable ties, cut state and mixed undo history survive progress save and restore',()=>{
+ const problem=fixture(),attempt=new Attempt(()=>0),wiring=new WiringController(problem,attempt);attempt.start();beginWire(wiring,problem.terminalMap.A);finishWire(wiring,problem.terminalMap.B);beginWire(wiring,problem.terminalMap.B);finishWire(wiring,problem.terminalMap.C);
+ const ids=attempt.connections.map(w=>w.id),tieId=attempt.addCableTie({wireIds:ids,originPosition:[0,0,7],axis:[1,0,0],offsetMm:0,influenceMm:100,bundleRadius:4,slots:Object.fromEntries(ids.map((id,i)=>[id,[i*3,0]])),anchors:Object.fromEntries(ids.map(id=>[id,{distanceMm:30,direction:1}])),tailCut:false});attempt.cutCableTie(tieId);
+ const saved=captureProgress(problem,attempt,wiring,{selectedCableTieId:tieId}),restoredAttempt=new Attempt(()=>500),restoredWiring=new WiringController(problem,restoredAttempt),restored=restoreProgress(saved,problem,restoredAttempt,restoredWiring);
+ assert.equal(restoredAttempt.cableTies.length,1);assert.equal(restoredAttempt.cableTies[0].tailCut,true);assert.equal(restored.selectedCableTieId,tieId);assert.ok(restoredAttempt.tieSerial>=1);assert.equal(restoredWiring.undo().type,'connection');assert.equal(restoredAttempt.cableTies[0].tailCut,false);
+});

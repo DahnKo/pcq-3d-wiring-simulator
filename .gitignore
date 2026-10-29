@@ -5,3 +5,4 @@ docs/contact-sheets/
 .DS_Store
 *.patch
 *.zip
+patches/

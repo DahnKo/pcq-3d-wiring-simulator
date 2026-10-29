@@ -135,16 +135,23 @@ export function grade(problem,connections){
 }
 export class Attempt {
  constructor(now=()=>performance.now()){this.now=now;this.reset();}
- reset(){this.state='ready';this.startedAt=null;this.elapsedMs=0;this.connections=[];this.history=[];this.future=[];this.result=null;this.serial=0;}
+ reset(){this.state='ready';this.startedAt=null;this.elapsedMs=0;this.connections=[];this.cableTies=[];this.history=[];this.future=[];this.result=null;this.serial=0;this.tieSerial=0;}
+ snapshot(){return {connections:structuredClone(this.connections),cableTies:structuredClone(this.cableTies)};}
+ restoreSnapshot(snapshot){if(Array.isArray(snapshot)){this.connections=structuredClone(snapshot);this.cableTies=[];return;}this.connections=structuredClone(snapshot?.connections??[]);this.cableTies=structuredClone(snapshot?.cableTies??[]);}
  start(){if(this.state!=='ready')return false;this.startedAt=this.now();this.state='running';return true;}
  elapsed(){return this.state==='running'?Math.max(0,this.now()-this.startedAt):this.elapsedMs;}
  finish(){if(this.state!=='running')return false;this.elapsedMs=this.elapsed();this.state='finished';return true;}
- mutate(fn){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');this.history.push(structuredClone(this.connections));this.future=[];fn(this.connections);}
+ mutate(fn){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');this.history.push(this.snapshot());this.future=[];fn(this.connections,this.cableTies);}
  add(w){const id='W'+String(++this.serial).padStart(3,'0');this.mutate(a=>a.push({...structuredClone(w),id}));return id;}
  update(id,w){this.mutate(a=>{const i=a.findIndex(x=>x.id===id);if(i<0)throw Error('전선 없음');a[i]={...structuredClone(w),id};});}
- remove(id){this.mutate(a=>{const i=a.findIndex(x=>x.id===id);if(i>=0)a.splice(i,1);});}
- undo(){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');if(!this.history.length)return false;this.future.push(structuredClone(this.connections));this.connections=this.history.pop();return true;}
- redo(){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');if(!this.future.length)return false;this.history.push(structuredClone(this.connections));this.connections=this.future.pop();return true;}
+ remove(id){this.mutate((connections,ties)=>{const i=connections.findIndex(x=>x.id===id);if(i>=0)connections.splice(i,1);for(let t=ties.length-1;t>=0;t--){const tie=ties[t];if(!tie.wireIds?.includes(id))continue;tie.wireIds=tie.wireIds.filter(x=>x!==id);if(tie.anchors)delete tie.anchors[id];if(tie.slots)delete tie.slots[id];if(tie.wireIds.length<2)ties.splice(t,1);}});}
+ addCableTie(tie){const id='T'+String(++this.tieSerial).padStart(3,'0');this.mutate((_,ties)=>ties.push({...structuredClone(tie),id}));return id;}
+ moveCableTie(id,positionOffsetMm){const tie=this.cableTies.find(t=>t.id===id);if(!tie)throw Error('케이블타이를 찾을 수 없습니다.');const raw=Array.isArray(positionOffsetMm)?positionOffsetMm:[0,0],x=Number(raw[0])||0,y=Number(raw[1])||0,length=Math.hypot(x,y),scale=length>50?50/length:1,next=[x*scale,y*scale],current=Array.isArray(tie.positionOffsetMm)?tie.positionOffsetMm:[0,0];if(Math.hypot((Number(current[0])||0)-next[0],(Number(current[1])||0)-next[1])<=.01)return false;this.mutate((_,ties)=>{const target=ties.find(t=>t.id===id);target.positionOffsetMm=next;target.offsetMm=0;});return true;}
+ rotateCableTie(id,degrees){const tie=this.cableTies.find(t=>t.id===id);if(!tie)throw Error('케이블타이를 찾을 수 없습니다.');const delta=Number(degrees)||0;if(!delta)return false;this.mutate((_,ties)=>{const target=ties.find(t=>t.id===id),axis=target.axis??[1,0,0],x=Number(axis[0])||0,y=Number(axis[1])||0,length=Math.hypot(x,y)||1,unit=[x/length,y/length,0];if(!Array.isArray(target.anchorAxis))target.anchorAxis=[...unit];if(!Array.isArray(target.positionOffsetMm)){const legacy=Number(target.offsetMm)||0;target.positionOffsetMm=[unit[0]*legacy,unit[1]*legacy];target.offsetMm=0;}const r=delta*Math.PI/180,c=Math.cos(r),s=Math.sin(r);target.axis=[unit[0]*c-unit[1]*s,unit[0]*s+unit[1]*c,0];target.rotationDeg=((Number(target.rotationDeg)||0)+delta)%360;});return true;}
+ cutCableTie(id){const tie=this.cableTies.find(t=>t.id===id);if(!tie)throw Error('케이블타이를 찾을 수 없습니다.');if(tie.tailCut)return false;this.mutate((_,ties)=>{ties.find(t=>t.id===id).tailCut=true;});return true;}
+ removeCableTie(id){if(!this.cableTies.some(t=>t.id===id))return false;this.mutate((_,ties)=>{const i=ties.findIndex(t=>t.id===id);if(i>=0)ties.splice(i,1);});return true;}
+ undo(){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');if(!this.history.length)return false;this.future.push(this.snapshot());this.restoreSnapshot(this.history.pop());return true;}
+ redo(){if(this.state!=='running')throw Error('배선 작업이 잠겨 있습니다.');if(!this.future.length)return false;this.history.push(this.snapshot());this.restoreSnapshot(this.future.pop());return true;}
  score(problem){if(!['finished','graded'].includes(this.state))throw Error('완료 후에만 채점할 수 있습니다.');this.result=grade(problem,this.connections);this.state='graded';return this.result;}
 }
 export function formatTime(ms){const s=Math.floor(ms/1000);return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(n=>String(n).padStart(2,'0')).join(':');}

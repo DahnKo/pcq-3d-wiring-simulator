@@ -1,5 +1,6 @@
 import * as T from 'three';
 import {colors} from './problem.mjs';
+import {wireRadius,constrainedWireCurve} from './cable-ties.mjs';
 const mat=(color,extra={})=>new T.MeshStandardMaterial({color,roughness:.58,...extra});
 export function block(parent,size,pos,color,extra={}){const m=new T.Mesh(new T.BoxGeometry(...size),mat(color,extra));m.position.set(...pos);parent.add(m);return m;}
 export function cylinder(parent,r,h,pos,color){const m=new T.Mesh(new T.CylinderGeometry(r,r,h,16),mat(color,{metalness:.6}));m.rotation.x=Math.PI/2;m.position.set(...pos);parent.add(m);return m;}
@@ -61,9 +62,11 @@ export function wirePoints(problem,w,pointer){
  if(!(w.via?.length))points.push(new T.Vector3((from[0]+to[0])/2,(from[1]+to[1])/2-22,Math.max(from[2],to[2])+24));
  points.push(entry(to,toDirection,20,14),entry(to,toDirection,10,4),new T.Vector3(...to));return points;
 }
-export function wireMesh(problem,w,pointer=null,mounts={}){
- const g=new T.Group();g.userData.connection=w;const points=wirePoints(problem,w,pointer),curve=new T.CatmullRomCurve3(points,false,'centripetal');
- const radius=w.area===2.5?1.05:.85,mesh=new T.Mesh(new T.TubeGeometry(curve,Math.max(32,points.length*12),radius,8,false),mat(colors[w.color]??'#e0b600'));mesh.userData.connection=w;g.add(mesh);
+export function baseWireCurve(problem,w,pointer=null){return new T.CatmullRomCurve3(wirePoints(problem,w,pointer),false,'centripetal');}
+export function displayWireCurve(problem,w,pointer=null,cableTies=[]){const base=baseWireCurve(problem,w,pointer);return pointer?base:constrainedWireCurve(base,w,cableTies);}
+export function wireMesh(problem,w,pointer=null,mounts={},cableTies=[]){
+ const g=new T.Group();g.userData.connection=w;const points=wirePoints(problem,w,pointer),curve=displayWireCurve(problem,w,pointer,cableTies);g.userData.curve=curve;
+ const radius=wireRadius(w),mesh=new T.Mesh(new T.TubeGeometry(curve,Math.max(32,points.length*12),radius,8,false),mat(colors[w.color]??'#e0b600'));mesh.userData.connection=w;g.add(mesh);
  if(w.color==='녹색-노란색'){
   for(let i=1;i<24;i+=2){const pos=curve.getPoint(i/24),stripe=new T.Mesh(new T.SphereGeometry(radius*1.02,8,6),mat('#efcf2f'));stripe.position.copy(pos);g.add(stripe);}
  }
